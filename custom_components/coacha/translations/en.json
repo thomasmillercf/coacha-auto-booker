@@ -1,0 +1,77 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to Coacha",
+        "description": "Sign in with the email and password you use for your club's Coacha page.",
+        "data": {
+          "login_url": "Club login page",
+          "email": "Email",
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Coacha rejected the email or password.",
+      "cannot_connect": "Could not reach Coacha.",
+      "no_members": "This login has no club members to book for."
+    },
+    "abort": {
+      "already_configured": "This Coacha login is already set up."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Auto-booking",
+        "data": {
+          "weekdays": "Days to book",
+          "waiting_list": "Join the waiting list when a session is full",
+          "scan_interval": "Check every",
+          "notify_service": "Notify service, e.g. notify.mobile_app_my_phone"
+        }
+      },
+      "member": {
+        "title": "Sessions for {member}",
+        "description": "Pick the session types to book for {member}, most preferred first. Only one session is booked per person per day: the first type with a free place wins, and if every one is full {member} joins the waiting list for the first. Leave empty to never book for {member}.",
+        "data": {
+          "session_types": "Session types"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "next_booking": {
+        "name": "{member} next booking"
+      },
+      "unpaid_bookings": {
+        "name": "{member} unpaid bookings"
+      },
+      "last_action": {
+        "name": "Last auto-booking"
+      },
+      "next_check": {
+        "name": "Next check"
+      }
+    },
+    "switch": {
+      "auto_book": {
+        "name": "Auto-book"
+      }
+    }
+  },
+  "selector": {
+    "weekdays": {
+      "options": {
+        "monday": "Monday",
+        "tuesday": "Tuesday",
+        "wednesday": "Wednesday",
+        "thursday": "Thursday",
+        "friday": "Friday",
+        "saturday": "Saturday",
+        "sunday": "Sunday"
+      }
+    }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "domain": "coacha",
+  "name": "Coacha Auto Booker",
+  "codeowners": ["@thomasmillercf"],
+  "config_flow": true,
+  "dependencies": ["persistent_notification"],
+  "documentation": "https://github.com/thomasmillercf/coacha-auto-booker",
+  "integration_type": "service",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/thomasmillercf/coacha-auto-booker/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}

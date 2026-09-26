@@ -1,0 +1,498 @@
+openapi: 3.1.0
+info:
+  title: Coacha member API (unofficial)
+  version: "2026-09-26"
+  description: |
+    Reverse-engineered from the my.coacha.app Angular client. Not published or supported by Coacha, so it can change without notice.
+
+    Authentication is a two-step flow:
+
+    1. Post the club login form to get an ASP.NET Identity cookie.
+    2. Swap the cookie for a bearer token with the OIDC authorisation-code flow plus PKCE (client `CoachaApp`).
+
+    After that, `POST /api/userselection/select` chooses the profile to act as, and a fresh token must be issued.
+    Until a profile is selected, every `/api/membercalendar` call returns 403.
+servers:
+  - url: https://my.coacha.app
+security:
+  - bearer: []
+tags:
+  - name: Authentication
+  - name: Profiles
+  - name: Calendar
+  - name: Booking
+
+paths:
+  /login/{clubLoginSlug}:
+    parameters:
+      - name: clubLoginSlug
+        in: path
+        required: true
+        schema: { type: string, example: WGCSKIRACECLUBLOGIN }
+    get:
+      tags: [Authentication]
+      summary: Club login page
+      description: HTML page holding the `__RequestVerificationToken` anti-forgery field that the login post needs.
+      security: []
+      responses:
+        "200":
+          description: Login page, which also sets the anti-forgery cookie.
+          content:
+            text/html: {}
+    post:
+      tags: [Authentication]
+      summary: Submit email and password
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [Input.Email, Input.Password, __RequestVerificationToken]
+              properties:
+                Input.Email: { type: string, format: email }
+                Input.Password: { type: string, format: password }
+                __RequestVerificationToken: { type: string }
+      responses:
+        "302":
+          description: Signed in; sets the `.AspNetCore.Identity.Application` cookie and redirects to `/`.
+        "200":
+          description: Login rejected; the form is shown again with errors.
+
+  /_configuration/{clientId}:
+    get:
+      tags: [Authentication]
+      summary: OIDC client settings
+      security: []
+      parameters:
+        - name: clientId
+          in: path
+          required: true
+          schema: { type: string, example: CoachaApp }
+      responses:
+        "200":
+          description: Client settings.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  authority: { type: string, example: https://my.coacha.app/ }
+                  client_id: { type: string, example: CoachaApp }
+                  redirect_uri: { type: string, example: https://my.coacha.app/authentication/login-callback }
+                  response_type: { type: string, example: code }
+                  scope: { type: string, example: CoachaAppAPI openid profile }
+
+  /connect/authorize:
+    get:
+      tags: [Authentication]
+      summary: Start the authorisation-code flow
+      description: Needs the identity cookie. Redirects to `redirect_uri` with a `code`, or to the login page if the cookie is missing.
+      security: []
+      parameters:
+        - { name: client_id, in: query, required: true, schema: { type: string, const: CoachaApp } }
+        - { name: redirect_uri, in: query, required: true, schema: { type: string } }
+        - { name: response_type, in: query, required: true, schema: { type: string, const: code } }
+        - { name: scope, in: query, required: true, schema: { type: string, example: CoachaAppAPI openid profile } }
+        - { name: state, in: query, required: true, schema: { type: string } }
+        - { name: code_challenge, in: query, required: true, schema: { type: string } }
+        - { name: code_challenge_method, in: query, required: true, schema: { type: string, const: S256 } }
+      responses:
+        "302":
+          description: Redirect carrying `code` and `state` in the query string.
+
+  /connect/token:
+    post:
+      tags: [Authentication]
+      summary: Exchange the code for a bearer token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [grant_type, client_id, code, redirect_uri, code_verifier]
+              properties:
+                grant_type: { type: string, const: authorization_code }
+                client_id: { type: string, const: CoachaApp }
+                code: { type: string }
+                redirect_uri: { type: string }
+                code_verifier: { type: string }
+      responses:
+        "200":
+          description: Access token. No refresh token is issued, so log in again when it expires.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  access_token: { type: string }
+                  id_token: { type: string }
+                  expires_in: { type: integer, example: 3600 }
+                  token_type: { type: string, example: Bearer }
+                  scope: { type: string }
+
+  /api/userselection:
+    get:
+      tags: [Profiles]
+      summary: List the profiles this login can act as
+      responses:
+        "200":
+          description: Profiles.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/UserSelection" }
+
+  /api/userselection/select:
+    post:
+      tags: [Profiles]
+      summary: Act as a profile
+      description: Stored server-side against the login session. Issue a new token afterwards.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [clubId, systemRole, nextOfKin]
+              properties:
+                clubId: { type: integer, example: 11005 }
+                systemRole: { type: string, example: ClubMember }
+                nextOfKin: { type: boolean }
+                userId:
+                  type: [integer, "null"]
+                  description: The member's id, or null for a next-of-kin profile.
+      responses:
+        "200":
+          description: Profile selected.
+
+  /api/userinfo:
+    get:
+      tags: [Profiles]
+      summary: Members the selected profile can book for
+      responses:
+        "200":
+          description: User info.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UserInfo" }
+
+  /api/membercalendar/events/{dateFrom}/{dateTo}:
+    get:
+      tags: [Calendar]
+      summary: Calendar entries in a date range
+      parameters:
+        - $ref: "#/components/parameters/DateFrom"
+        - $ref: "#/components/parameters/DateTo"
+      responses:
+        "200":
+          description: Calendar entries.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/CalendarEvent" }
+
+  /api/membercalendar/classes/{dateFrom}/{dateTo}:
+    get:
+      tags: [Calendar]
+      summary: The selected profile's own bookings
+      parameters:
+        - $ref: "#/components/parameters/DateFrom"
+        - $ref: "#/components/parameters/DateTo"
+        - name: timeslotType
+          in: query
+          required: true
+          schema: { type: string, enum: [None, Course, PrivateClass, VenueBooking], example: None }
+      responses:
+        "200":
+          description: Bookings, including waiting-list places.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/MemberClass" }
+
+  /api/membercalendar/classtypes:
+    get:
+      tags: [Calendar]
+      summary: Class types open to members
+      responses:
+        "200":
+          description: Class types.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ClassType" }
+
+  /api/membercalendar/classtype/{classTypeId}/classes:
+    get:
+      tags: [Calendar]
+      summary: Dated classes of a class type, with availability for one member
+      parameters:
+        - { name: classTypeId, in: path, required: true, schema: { type: integer } }
+        - { name: userid, in: query, required: true, schema: { type: integer } }
+      responses:
+        "200":
+          description: Classes.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ClassAvailability" }
+
+  /api/membercalendar/classinformation/{classId}:
+    get:
+      tags: [Calendar]
+      summary: Details of one class
+      parameters:
+        - $ref: "#/components/parameters/ClassId"
+      responses:
+        "200":
+          description: Class details.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ClassInformation" }
+
+  /api/membercalendar/{userId}/class/{classId}/bookingoptions:
+    get:
+      tags: [Booking]
+      summary: Ways a member can pay for a class
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+        - $ref: "#/components/parameters/ClassId"
+      responses:
+        "200":
+          description: Booking options.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/BookingOption" }
+        "204":
+          description: The member cannot book this class.
+
+  /api/membercalendar/{userId}/class/{classId}:
+    parameters:
+      - $ref: "#/components/parameters/UserId"
+      - $ref: "#/components/parameters/ClassId"
+    post:
+      tags: [Booking]
+      summary: Book a member onto a class
+      description: A card booking holds the place straight away, unpaid, and returns a payment request for later.
+      parameters:
+        - name: paymentMethod
+          in: query
+          required: true
+          schema: { $ref: "#/components/schemas/PaymentMethod" }
+        - name: guestUserIds
+          in: query
+          schema: { type: string, description: Comma-separated user ids. }
+        - name: sendBookingConfirmation
+          in: query
+          schema: { type: boolean }
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object }
+      responses:
+        "200":
+          description: Booked.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  paymentRequestCode:
+                    type: [string, "null"]
+                    description: Open `/member_payment?rc={code}` to pay.
+    delete:
+      tags: [Booking]
+      summary: Cancel a member's booking
+      description: The auto-booker never calls this.
+      responses:
+        "200":
+          description: Cancelled.
+
+  /api/membercalendar/{userId}/class/{classId}/waitingList:
+    post:
+      tags: [Booking]
+      summary: Join a class's waiting list
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+        - $ref: "#/components/parameters/ClassId"
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object }
+      responses:
+        "200":
+          description: Added to the waiting list.
+
+  /api/membercalendar/{userId}/classType/{classTypeId}:
+    post:
+      tags: [Booking]
+      summary: Book a member onto a whole course
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+        - { name: classTypeId, in: path, required: true, schema: { type: integer } }
+        - { name: paymentMethod, in: query, required: true, schema: { $ref: "#/components/schemas/PaymentMethod" } }
+      responses:
+        "200":
+          description: Booked.
+
+components:
+  securitySchemes:
+    bearer:
+      type: http
+      scheme: bearer
+      description: Access token from `/connect/token`, issued after a profile is selected.
+
+  parameters:
+    DateFrom:
+      name: dateFrom
+      in: path
+      required: true
+      schema: { type: string, format: date-time, example: "2026-09-26T00:00:00.000Z" }
+    DateTo:
+      name: dateTo
+      in: path
+      required: true
+      schema: { type: string, format: date-time, example: "2026-12-25T00:00:00.000Z" }
+    UserId:
+      name: userId
+      in: path
+      required: true
+      schema: { type: integer, example: 1000001 }
+    ClassId:
+      name: classId
+      in: path
+      required: true
+      schema: { type: integer, example: 6872334 }
+
+  schemas:
+    PaymentMethod:
+      type: integer
+      description: "0 None, 1 Stripe (card), 2 GoCardless, 3 Cash, 4 Prepaid, 5 Subscription, 6 FeeWaived, 7 ClassBundle, 8 FreeTrial."
+      enum: [0, 1, 2, 3, 4, 5, 6, 7, 8]
+
+    BookingOption:
+      type: object
+      properties:
+        classBookingOption:
+          type: integer
+          description: "1 Cash, 2 Prepaid, 3 Card, 4 Bank, 5 Bundle, 6 FeeWaived, 7 IncludedInSubscription, 8 PaymentNotRequired. Card maps to payment method 1."
+        paymentProvider: { type: integer }
+        displayValue: { type: string, example: Card Payment }
+        additionalInformation: { type: string }
+        enabled: { type: boolean }
+        cost: { type: number, example: 15.0 }
+        costFormatted: { type: string, example: "£15" }
+
+    UserSelection:
+      type: object
+      properties:
+        clubId: { type: integer }
+        clubName: { type: string }
+        systemRole: { type: string, example: ClubMember }
+        isStaff: { type: boolean }
+        roleName: { type: string }
+        isNextOfKin: { type: boolean }
+        userId: { type: [integer, "null"] }
+        userNames: { type: array, items: { type: string } }
+
+    UserInfo:
+      type: object
+      properties:
+        email: { type: [string, "null"] }
+        clubName: { type: [string, "null"] }
+        allowAccess: { type: boolean }
+        permissions: { type: [array, "null"], items: { type: string } }
+        users:
+          type: [array, "null"]
+          items:
+            type: object
+            properties:
+              userId: { type: integer }
+              firstName: { type: string }
+              lastName: { type: string }
+
+    CalendarEvent:
+      type: object
+      properties:
+        id: { type: string, description: The class id, as a string. }
+        title: { type: string, example: MEMBERS (2nd Oct 2026) }
+        start: { type: string, format: date-time, description: Club local time, no offset. }
+        end: { type: string, format: date-time }
+        allDay: { type: boolean }
+        classNames: { type: array, items: { type: string, example: bookable } }
+        extendedProps:
+          type: object
+          properties:
+            Bookable: { type: boolean }
+            ClassTypeId: { type: integer }
+            Type: { type: string, example: Class }
+
+    ClassType:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        cost: { type: number }
+        costFormatted: { type: string }
+        timeslotType: { type: string, example: None }
+        bookable: { type: boolean }
+        full: { type: boolean }
+        waitListEnabled: { type: boolean }
+        attendanceCount: { type: integer }
+        maxsize: { type: integer }
+        individualClassBookingsEnabled: { type: boolean }
+
+    ClassAvailability:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string, example: "02-Oct-2026 : 7:00 pm to  9:00 pm (11/12)" }
+        classDate: { type: string, format: date-time }
+        bookable: { type: boolean }
+        full: { type: boolean }
+        waitlist: { type: boolean }
+        classStartPassed: { type: boolean }
+        attendanceCount: { type: integer }
+
+    ClassInformation:
+      type: object
+      properties:
+        classId: { type: integer }
+        classTypeId: { type: integer }
+        classDate: { type: string, format: date-time }
+        name: { type: string }
+        description: { type: string }
+        venue: { type: string }
+        coaches: { type: array, items: { type: string } }
+        bookable: { type: boolean }
+        cancellationPolicyHours: { type: [integer, "null"] }
+        cost: { type: [number, "null"] }
+        maxAttendees: { type: integer }
+
+    MemberClass:
+      type: object
+      properties:
+        classId: { type: integer }
+        classTypeId: { type: integer }
+        className: { type: string }
+        classStart: { type: string, format: date-time }
+        classEnd: { type: string, format: date-time }
+        userId: { type: integer }
+        userName: { type: string }
+        paid: { type: boolean }
+        paymentRequestCode: { type: [string, "null"] }
+        onWaitingList: { type: boolean }
+        canCancel: { type: boolean }
+        cancellationPolicyDateTime: { type: string, format: date-time }
+        timeslotType: { type: string }
