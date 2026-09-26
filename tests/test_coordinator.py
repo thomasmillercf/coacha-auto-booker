@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from homeassistant.core import HomeAssistant
-from pytest_homeassistant_custom_component.common import MockConfigEntry, async_mock_service
+from pytest_homeassistant_custom_component.common import MockConfigEntry, async_capture_events, async_mock_service
 
 from custom_components.coacha.api import Booking, ClassAvailability, Member, Session
 from custom_components.coacha.const import DOMAIN
@@ -150,3 +150,24 @@ class TestCoachaCoordinator:
         entry = await set_up(hass, client)
 
         assert entry.runtime_data.update_interval == timedelta(minutes=5)
+
+    async def test_announces_a_session_that_opens_after_setup(self, hass, phone_notifications):
+        booked = [build_booking(FRIDAY_ERSA.class_id)]
+        client = build_client([booked, booked])
+        client.async_get_sessions = AsyncMock(side_effect=[[], [FRIDAY_MEMBERS, FRIDAY_ERSA]])
+        entry = await set_up(hass, client)
+        available = async_capture_events(hass, "coacha_session_available")
+
+        await entry.runtime_data.async_refresh()
+
+        assert [event.data["class_id"] for event in available] == [FRIDAY_MEMBERS.class_id, FRIDAY_ERSA.class_id]
+
+    async def test_does_not_announce_sessions_already_open_at_setup(self, hass, phone_notifications):
+        booked = [build_booking(FRIDAY_ERSA.class_id)]
+        client = build_client([booked, booked])
+        available = async_capture_events(hass, "coacha_session_available")
+        entry = await set_up(hass, client)
+
+        await entry.runtime_data.async_refresh()
+
+        assert available == []

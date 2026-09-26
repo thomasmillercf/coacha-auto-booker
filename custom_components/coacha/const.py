@@ -23,3 +23,4 @@ DEFAULT_WEEKDAYS = ["friday"]
 LOOKAHEAD = timedelta(days=90)
 
 EVENT_BOOKED = f"{DOMAIN}_booked"
+EVENT_SESSION_AVAILABLE = f"{DOMAIN}_session_available"

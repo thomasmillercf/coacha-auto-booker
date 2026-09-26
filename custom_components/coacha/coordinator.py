@@ -20,7 +20,7 @@ from .api import (
     Session,
     build_payment_url,
 )
-from .booking_plan import PlannedDay, find_idle_until, normalise_session_type, plan_bookings
+from .booking_plan import PlannedDay, find_idle_until, normalise_session_type, plan_bookings, rank_session_type
 from .const import (
     CONF_NOTIFY_SERVICE,
     CONF_SCAN_INTERVAL,
@@ -31,6 +31,7 @@ from .const import (
     DEFAULT_WEEKDAYS,
     DOMAIN,
     EVENT_BOOKED,
+    EVENT_SESSION_AVAILABLE,
     LOOKAHEAD,
     WEEKDAY_NAMES,
 )
@@ -79,9 +80,8 @@ class CoachaCoordinator(DataUpdateCoordinator[CoachaData]):
         self.auto_book_enabled = True
         self._failed_attempts: set[tuple[int, int]] = set()
         self._ever_booked: set[tuple[int, int]] = set()
-        self._store: Store[dict[str, list[list[int]]]] = Store(
-            hass, STORAGE_VERSION, f"{DOMAIN}.{entry.entry_id}.ever_booked"
-        )
+        self._announced_class_ids: set[int] | None = None
+        self._store: Store[dict[str, list]] = Store(hass, STORAGE_VERSION, f"{DOMAIN}.{entry.entry_id}.ever_booked")
         self._last_action: str | None = None
         self._last_action_at: datetime | None = None
 
@@ -105,13 +105,54 @@ class CoachaCoordinator(DataUpdateCoordinator[CoachaData]):
     async def async_load_booking_history(self) -> None:
         stored = await self._store.async_load() or {}
         self._ever_booked = {(user_id, class_id) for user_id, class_id in stored.get("ever_booked", [])}
+        if "announced" in stored:
+            self._announced_class_ids = set(stored["announced"])
+
+    async def _async_save_history(self) -> None:
+        await self._store.async_save(
+            {
+                "ever_booked": sorted([list(key) for key in self._ever_booked]),
+                "announced": sorted(self._announced_class_ids or set()),
+            }
+        )
 
     async def _async_remember_bookings(self, bookings: list[Booking]) -> None:
         seen = {(booking.user_id, booking.class_id) for booking in bookings}
         if seen <= self._ever_booked:
             return
         self._ever_booked |= seen
-        await self._store.async_save({"ever_booked": sorted([list(key) for key in self._ever_booked])})
+        await self._async_save_history()
+
+    async def _async_announce_available(self, sessions: list[Session]) -> None:
+        wanted_types = list(self.wanted_types_by_user.values())
+        available = {
+            session.class_id: session
+            for session in sessions
+            if session.bookable
+            and session.start.weekday() in self.weekdays
+            and any(rank_session_type(session.title, wanted) is not None for wanted in wanted_types)
+        }
+        if self._announced_class_ids is None:
+            self._announced_class_ids = set(available)
+            await self._async_save_history()
+            return
+        newly_available = [
+            session for class_id, session in available.items() if class_id not in self._announced_class_ids
+        ]
+        if not newly_available:
+            return
+        for session in newly_available:
+            self.hass.bus.async_fire(
+                EVENT_SESSION_AVAILABLE,
+                {
+                    "class_id": session.class_id,
+                    "session": session.title,
+                    "session_type": normalise_session_type(session.title),
+                    "start": session.start.isoformat(),
+                },
+            )
+        self._announced_class_ids |= set(available)
+        await self._async_save_history()
 
     async def _async_update_data(self) -> CoachaData:
         start = dt_util.utcnow()
@@ -120,6 +161,7 @@ class CoachaCoordinator(DataUpdateCoordinator[CoachaData]):
             sessions = await self._primary_client.async_get_sessions(start, end)
             bookings = await self._async_get_all_bookings(start, end)
             await self._async_remember_bookings(bookings)
+            await self._async_announce_available(sessions)
             if self.auto_book_enabled:
                 planned = plan_bookings(
                     sessions,
@@ -215,11 +257,24 @@ class CoachaCoordinator(DataUpdateCoordinator[CoachaData]):
     async def _async_record_failure(self, user_id: int, session: Session, error: CoachaApiError) -> None:
         self._failed_attempts.add((user_id, session.class_id))
         _LOGGER.warning("Booking %s for %s failed: %s", session.title, user_id, error)
+        self.hass.bus.async_fire(
+            EVENT_BOOKED, {**self._describe(user_id, session, build_payment_url(None)), "outcome": "failed"}
+        )
         await self._async_notify(
             "Coacha booking failed",
             f"Could not book {session.title} for {self.member_names[user_id]}: {error}",
             build_payment_url(None),
         )
+
+    def _describe(self, user_id: int, session: Session, payment_url: str) -> dict[str, str | int]:
+        return {
+            "user_id": user_id,
+            "member": self.member_names[user_id],
+            "class_id": session.class_id,
+            "session": session.title,
+            "start": session.start.isoformat(),
+            "payment_url": payment_url,
+        }
 
     async def _async_record(
         self, user_id: int, session: Session, outcome: str, payment_request_code: str | None
@@ -235,18 +290,7 @@ class CoachaCoordinator(DataUpdateCoordinator[CoachaData]):
             message = f"{session.title} ({when}) was full."
         self._last_action = f"{title}: {session.title}"
         self._last_action_at = dt_util.utcnow()
-        self.hass.bus.async_fire(
-            EVENT_BOOKED,
-            {
-                "outcome": outcome,
-                "user_id": user_id,
-                "member": name,
-                "class_id": session.class_id,
-                "session": session.title,
-                "start": session.start.isoformat(),
-                "payment_url": payment_url,
-            },
-        )
+        self.hass.bus.async_fire(EVENT_BOOKED, {**self._describe(user_id, session, payment_url), "outcome": outcome})
         await self._async_notify(title, message, payment_url)
 
     async def _async_notify(self, title: str, message: str, url: str) -> None:

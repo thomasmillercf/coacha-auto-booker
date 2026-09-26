@@ -35,7 +35,8 @@ This Home Assistant integration watches the club calendar and books the sessions
 - `sensor.coacha_<name>_next_booking` and `sensor.coacha_<name>_unpaid_bookings` list each person's bookings with payment links.
 - `sensor.coacha_last_auto_booking` shows the latest booking made.
 - `sensor.coacha_next_check` shows when the calendar will next be checked.
-- Every booking or waiting-list place fires a `coacha_booked` event, for use in your own automations.
+- `coacha_session_available` fires the first time a wanted session opens for booking.
+- `coacha_booked` fires for every booking, waiting-list place or failed attempt, with `outcome` set to `booked`, `waiting_list` or `failed` and a `payment_url`.
 
 ## Development
 
