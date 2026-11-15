@@ -32,6 +32,7 @@ from .const import (
     DOMAIN,
     EVENT_BOOKED,
     EVENT_SESSION_AVAILABLE,
+    IDLE_SCAN_INTERVAL,
     LOOKAHEAD,
     WEEKDAY_NAMES,
 )
@@ -201,7 +202,7 @@ class CoachaCoordinator(DataUpdateCoordinator[CoachaData]):
             self.update_interval = self._scan_interval
         else:
             idle_until = idle_until.replace(tzinfo=dt_util.get_default_time_zone())
-            self.update_interval = max(idle_until - now, self._scan_interval)
+            self.update_interval = max(min(idle_until - now, IDLE_SCAN_INTERVAL), self._scan_interval)
         return now + self.update_interval
 
     @property

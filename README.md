@@ -27,7 +27,7 @@ This Home Assistant integration watches the club calendar and books the sessions
 - A session that was ever booked and has since gone was cancelled, so that day is never auto-booked again. The integration remembers every booking it has seen, across restarts.
 - Payment is never taken: card bookings hold the place unpaid until you pay through the link.
 - The integration never cancels a booking.
-- Once everyone has a place, waiting-list place or cancellation for the next session day, checks pause until that day's sessions end. The club releases one week at a time, so nothing new can appear before then.
+- Once everyone has a place, waiting-list place or cancellation for the next session day, checks slow to every 10 minutes until that day's sessions end. The club releases one week at a time, so nothing new can appear before then, but payment and booking status still refresh.
 
 ## Entities and events
 

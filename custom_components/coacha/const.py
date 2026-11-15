@@ -21,6 +21,8 @@ WEEKDAY_NAMES = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturd
 DEFAULT_WEEKDAYS = ["friday"]
 
 LOOKAHEAD = timedelta(days=90)
+# While nothing needs booking, still refresh at this rate so payment and booking status stay current.
+IDLE_SCAN_INTERVAL = timedelta(minutes=10)
 
 EVENT_BOOKED = f"{DOMAIN}_booked"
 EVENT_SESSION_AVAILABLE = f"{DOMAIN}_session_available"

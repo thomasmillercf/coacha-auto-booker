@@ -132,14 +132,14 @@ class TestCoachaCoordinator:
 
         client.async_book.assert_not_awaited()
 
-    async def test_pauses_checks_until_the_booked_friday_is_over(self, hass, phone_notifications, freezer):
+    async def test_slows_to_ten_minute_checks_once_friday_is_booked(self, hass, phone_notifications, freezer):
         freezer.move_to("2026-09-28 09:00:00+01:00")
         booked = [build_booking(FRIDAY_ERSA.class_id)]
         client = build_client([booked, booked])
 
         entry = await set_up(hass, client)
 
-        assert entry.runtime_data.update_interval == timedelta(days=4, hours=12)
+        assert entry.runtime_data.update_interval == timedelta(minutes=10)
         client.async_book.assert_not_awaited()
 
     async def test_checks_every_five_minutes_while_waiting_for_a_place(self, hass, phone_notifications, freezer):
