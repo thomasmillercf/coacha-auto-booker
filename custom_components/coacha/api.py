@@ -66,6 +66,7 @@ class Booking:
     paid: bool
     on_waiting_list: bool
     payment_request_code: str | None
+    can_cancel: bool = True
 
 
 @dataclass(frozen=True)
@@ -171,6 +172,7 @@ class CoachaClient:
                 paid=booked["paid"],
                 on_waiting_list=booked["onWaitingList"],
                 payment_request_code=booked["paymentRequestCode"],
+                can_cancel=booked.get("canCancel", True),
             )
             for booked in classes
         ]
@@ -204,6 +206,9 @@ class CoachaClient:
             json={},
         )
         return (result or {}).get("paymentRequestCode")
+
+    async def async_cancel(self, user_id: int, class_id: int) -> None:
+        await self._async_request_json("DELETE", f"/api/membercalendar/{user_id}/class/{class_id}")
 
     async def async_join_waiting_list(self, user_id: int, class_id: int) -> None:
         await self._async_request_json("POST", f"/api/membercalendar/{user_id}/class/{class_id}/waitingList", json={})

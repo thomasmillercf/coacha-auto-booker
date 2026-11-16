@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from homeassistant.components import persistent_notification
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
@@ -85,6 +86,7 @@ class CoachaCoordinator(DataUpdateCoordinator[CoachaData]):
         self._store: Store[dict[str, list]] = Store(hass, STORAGE_VERSION, f"{DOMAIN}.{entry.entry_id}.ever_booked")
         self._last_action: str | None = None
         self._last_action_at: datetime | None = None
+        self.selected_for_cancel: dict[int, int] = {}
 
     @property
     def member_names(self) -> dict[int, str]:
@@ -123,6 +125,40 @@ class CoachaCoordinator(DataUpdateCoordinator[CoachaData]):
             return
         self._ever_booked |= seen
         await self._async_save_history()
+
+    def cancellable_bookings(self, user_id: int) -> list[Booking]:
+        now = dt_util.now().replace(tzinfo=None)
+        return sorted(
+            (
+                booking
+                for booking in self.data.bookings
+                if booking.user_id == user_id
+                and booking.can_cancel
+                and not booking.on_waiting_list
+                and booking.start.replace(tzinfo=None) > now
+            ),
+            key=lambda booking: booking.start,
+        )
+
+    async def async_cancel_selected(self, user_id: int) -> None:
+        class_id = self.selected_for_cancel.get(user_id)
+        booking = next(
+            (booking for booking in self.cancellable_bookings(user_id) if booking.class_id == class_id), None
+        )
+        if booking is None:
+            raise ServiceValidationError("Pick a booking to cancel first")
+        try:
+            await self.clients_by_user[user_id].async_cancel(user_id, booking.class_id)
+        except CoachaApiError as error:
+            raise HomeAssistantError(f"Coacha would not cancel {booking.class_name}: {error}") from error
+        self.selected_for_cancel.pop(user_id, None)
+        when = booking.start.strftime("%a %-d %b %H:%M")
+        await self._async_notify(
+            f"Cancelled {self.member_names[user_id]} on Coacha",
+            f"{booking.class_name} ({when}) was cancelled. It will not be auto-booked again.",
+            build_payment_url(None),
+        )
+        await self.async_request_refresh()
 
     async def _async_announce_available(self, sessions: list[Session]) -> None:
         wanted_types = list(self.wanted_types_by_user.values())

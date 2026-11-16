@@ -66,6 +66,16 @@ class TestCoachaClient:
         )
         assert booking_call[3]["Authorization"] == "Bearer the-token"
 
+    async def test_cancels_a_booking(self, hass, aioclient_mock):
+        mock_login(aioclient_mock)
+        aioclient_mock.delete("https://my.coacha.app/api/membercalendar/1000001/class/6872334", text="")
+
+        await build_client(hass).async_cancel(1000001, 6872334)
+
+        cancel_call = aioclient_mock.mock_calls[-1]
+        assert cancel_call[0] == "DELETE"
+        assert str(cancel_call[1]) == "https://my.coacha.app/api/membercalendar/1000001/class/6872334"
+
     async def test_maps_the_card_booking_option_to_stripe(self, hass, aioclient_mock):
         mock_login(aioclient_mock)
         aioclient_mock.get(

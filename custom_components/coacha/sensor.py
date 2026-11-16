@@ -10,7 +10,7 @@ from homeassistant.util import dt as dt_util
 
 from .api import Booking, Member, build_payment_url
 from .coordinator import CoachaConfigEntry, CoachaCoordinator
-from .entity import CoachaEntity
+from .entity import CoachaEntity, CoachaMemberEntity
 
 
 async def async_setup_entry(
@@ -34,12 +34,9 @@ def describe_booking(booking: Booking) -> dict[str, Any]:
     }
 
 
-class MemberSensor(CoachaEntity, SensorEntity):
+class MemberSensor(CoachaMemberEntity, SensorEntity):
     def __init__(self, coordinator: CoachaCoordinator, member: Member, key: str) -> None:
-        super().__init__(coordinator, key)
-        self._member = member
-        self._attr_unique_id = f"{self._attr_unique_id}_{member.user_id}"
-        self._attr_translation_placeholders = {"member": member.name.split()[0]}
+        super().__init__(coordinator, member, key)
 
     @property
     def member_bookings(self) -> list[Booking]:

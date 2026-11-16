@@ -314,7 +314,7 @@ paths:
     delete:
       tags: [Booking]
       summary: Cancel a member's booking
-      description: The auto-booker never calls this.
+      description: The auto-booker only calls this when someone presses a member's Cancel booking button.
       responses:
         "200":
           description: Cancelled.

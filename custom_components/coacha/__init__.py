@@ -10,7 +10,7 @@ from .api import CoachaApiError, CoachaAuthError, CoachaClient, Member, Profile
 from .const import CONF_LOGIN_URL
 from .coordinator import CoachaConfigEntry, CoachaCoordinator
 
-PLATFORMS = [Platform.SENSOR, Platform.SWITCH]
+PLATFORMS = [Platform.BUTTON, Platform.SELECT, Platform.SENSOR, Platform.SWITCH]
 
 
 def create_client(hass: HomeAssistant, entry_data: dict, profile: Profile | None = None) -> CoachaClient:

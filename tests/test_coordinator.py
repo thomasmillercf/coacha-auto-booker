@@ -1,8 +1,10 @@
+from dataclasses import replace
 from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ServiceValidationError
 from pytest_homeassistant_custom_component.common import MockConfigEntry, async_capture_events, async_mock_service
 
 from custom_components.coacha.api import Booking, ClassAvailability, Member, Session
@@ -57,6 +59,7 @@ def build_client(bookings: list[list[Booking]], full_class_ids: frozenset[int] =
     client.async_get_payment_method = AsyncMock(return_value=1)
     client.async_book = AsyncMock(return_value="pay-me")
     client.async_join_waiting_list = AsyncMock()
+    client.async_cancel = AsyncMock()
     return client
 
 
@@ -171,3 +174,47 @@ class TestCoachaCoordinator:
         await entry.runtime_data.async_refresh()
 
         assert available == []
+
+    async def test_lists_upcoming_bookings_that_can_be_cancelled(self, hass, phone_notifications, freezer):
+        freezer.move_to("2026-09-28 09:00:00+01:00")
+        booked = [build_booking(FRIDAY_ERSA.class_id), replace(build_booking(9999), can_cancel=False)]
+        await set_up(hass, build_client([booked]))
+
+        select = hass.states.get("select.coacha_alex_booking_to_cancel")
+
+        assert select.attributes["options"] == ["Fri 2 Oct 19:00 MEMBERS"]
+        assert select.state == "unknown"
+
+    async def test_cancels_the_selected_booking_and_never_rebooks_it(self, hass, phone_notifications, freezer):
+        freezer.move_to("2026-09-28 09:00:00+01:00")
+        booked = [build_booking(FRIDAY_ERSA.class_id)]
+        client = build_client([booked, []])
+        await set_up(hass, client)
+
+        await hass.services.async_call(
+            "select",
+            "select_option",
+            {"entity_id": "select.coacha_alex_booking_to_cancel", "option": "Fri 2 Oct 19:00 MEMBERS"},
+            blocking=True,
+        )
+        await hass.services.async_call(
+            "button", "press", {"entity_id": "button.coacha_alex_cancel_booking"}, blocking=True
+        )
+        await hass.async_block_till_done()
+
+        client.async_cancel.assert_awaited_once_with(ALEX.user_id, FRIDAY_ERSA.class_id)
+        client.async_book.assert_not_awaited()
+        assert phone_notifications[-1].data["title"] == "Cancelled Alex Skier on Coacha"
+        assert hass.states.get("select.coacha_alex_booking_to_cancel").attributes["options"] == []
+
+    async def test_refuses_to_cancel_without_a_selection(self, hass, phone_notifications, freezer):
+        freezer.move_to("2026-09-28 09:00:00+01:00")
+        client = build_client([[build_booking(FRIDAY_ERSA.class_id)]])
+        await set_up(hass, client)
+
+        with pytest.raises(ServiceValidationError):
+            await hass.services.async_call(
+                "button", "press", {"entity_id": "button.coacha_alex_cancel_booking"}, blocking=True
+            )
+
+        client.async_cancel.assert_not_awaited()

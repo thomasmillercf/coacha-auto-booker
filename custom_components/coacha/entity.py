@@ -3,6 +3,7 @@ from __future__ import annotations
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from .api import Member
 from .const import BASE_URL, DOMAIN
 from .coordinator import CoachaCoordinator
 
@@ -22,3 +23,11 @@ class CoachaEntity(CoordinatorEntity[CoachaCoordinator]):
             entry_type=DeviceEntryType.SERVICE,
             configuration_url=BASE_URL,
         )
+
+
+class CoachaMemberEntity(CoachaEntity):
+    def __init__(self, coordinator: CoachaCoordinator, member: Member, key: str) -> None:
+        super().__init__(coordinator, key)
+        self._member = member
+        self._attr_unique_id = f"{self._attr_unique_id}_{member.user_id}"
+        self._attr_translation_placeholders = {"member": member.name.split()[0]}

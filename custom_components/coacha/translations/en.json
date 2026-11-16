@@ -41,6 +41,16 @@
     }
   },
   "entity": {
+    "button": {
+      "cancel_booking": {
+        "name": "{member} cancel booking"
+      }
+    },
+    "select": {
+      "booking_to_cancel": {
+        "name": "{member} booking to cancel"
+      }
+    },
     "sensor": {
       "next_booking": {
         "name": "{member} next booking"

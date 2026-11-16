@@ -26,7 +26,7 @@ This Home Assistant integration watches the club calendar and books the sessions
 - A day is skipped for anyone who already has a session or waiting-list place on it.
 - A session that was ever booked and has since gone was cancelled, so that day is never auto-booked again. The integration remembers every booking it has seen, across restarts.
 - Payment is never taken: card bookings hold the place unpaid until you pay through the link.
-- The integration never cancels a booking.
+- The integration never cancels a booking by itself. You can cancel one with each person's cancel button, and that day is then never auto-booked again.
 - Once everyone has a place, waiting-list place or cancellation for the next session day, checks slow to every 10 minutes until that day's sessions end. The club releases one week at a time, so nothing new can appear before then, but payment and booking status still refresh.
 
 ## Entities and events
@@ -34,6 +34,7 @@ This Home Assistant integration watches the club calendar and books the sessions
 - `switch.coacha_auto_book` turns booking on and off.
 - `sensor.coacha_<name>_next_booking` and `sensor.coacha_<name>_unpaid_bookings` list each person's bookings with payment links.
 - `sensor.coacha_last_auto_booking` shows the latest booking made.
+- To cancel, pick the booking in `select.coacha_<name>_booking_to_cancel`, then press `button.coacha_<name>_cancel_booking`. Only upcoming bookings Coacha allows cancelling are listed, not waiting-list places.
 - `sensor.coacha_next_check` shows when the calendar will next be checked.
 - `coacha_session_available` fires the first time a wanted session opens for booking.
 - `coacha_booked` fires for every booking, waiting-list place or failed attempt, with `outcome` set to `booked`, `waiting_list` or `failed` and a `payment_url`.
