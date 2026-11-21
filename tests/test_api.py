@@ -76,6 +76,18 @@ class TestCoachaClient:
         assert cancel_call[0] == "DELETE"
         assert str(cancel_call[1]) == "https://my.coacha.app/api/membercalendar/1000001/class/6872334"
 
+    async def test_reads_the_outstanding_payments_summary(self, hass, aioclient_mock):
+        mock_login(aioclient_mock)
+        aioclient_mock.get(
+            "https://my.coacha.app/api/payment/outstanding-payments-summary",
+            json={"numberOfPayments": 2, "amount": 30, "requestKeys": ["R4FTD1494774", "YEXBY1494775"]},
+        )
+
+        outstanding = await build_client(hass).async_get_outstanding_payments()
+
+        assert outstanding.amount == 30.0
+        assert outstanding.request_codes == ("R4FTD1494774", "YEXBY1494775")
+
     async def test_maps_the_card_booking_option_to_stripe(self, hass, aioclient_mock):
         mock_login(aioclient_mock)
         aioclient_mock.get(

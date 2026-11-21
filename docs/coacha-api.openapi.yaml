@@ -319,6 +319,24 @@ paths:
         "200":
           description: Cancelled.
 
+  /api/payment/outstanding-payments-summary:
+    get:
+      tags: [Booking]
+      summary: Total of the selected profile's unpaid payment requests
+      description: Open `/member_payment?rc={code1},{code2}` to pay them all at once, as the website's Pay All does.
+      responses:
+        "200":
+          description: Outstanding payments.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  numberOfPayments: { type: integer }
+                  amount: { type: number, example: 30.0 }
+                  amountFormatted: { type: string, example: "£30.00" }
+                  requestKeys: { type: array, items: { type: string } }
+
   /api/membercalendar/{userId}/class/{classId}/waitingList:
     post:
       tags: [Booking]

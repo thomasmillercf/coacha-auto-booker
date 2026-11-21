@@ -70,6 +70,12 @@ class Booking:
 
 
 @dataclass(frozen=True)
+class OutstandingPayments:
+    amount: float = 0.0
+    request_codes: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class ClassAvailability:
     class_id: int
     bookable: bool
@@ -80,6 +86,12 @@ def build_payment_url(payment_request_code: str | None) -> str:
     if payment_request_code:
         return f"{BASE_URL}/member_payment?rc={payment_request_code}"
     return f"{BASE_URL}/dashboard"
+
+
+def build_pay_all_url(payment_request_codes: list[str] | tuple[str, ...]) -> str:
+    if payment_request_codes:
+        return f"{BASE_URL}/member_payment?rc={','.join(payment_request_codes)}"
+    return f"{BASE_URL}/my-payments"
 
 
 def format_api_datetime(moment: datetime) -> str:
@@ -206,6 +218,12 @@ class CoachaClient:
             json={},
         )
         return (result or {}).get("paymentRequestCode")
+
+    async def async_get_outstanding_payments(self) -> OutstandingPayments:
+        summary = await self._async_request_json("GET", "/api/payment/outstanding-payments-summary") or {}
+        return OutstandingPayments(
+            amount=float(summary.get("amount") or 0), request_codes=tuple(summary.get("requestKeys") or ())
+        )
 
     async def async_cancel(self, user_id: int, class_id: int) -> None:
         await self._async_request_json("DELETE", f"/api/membercalendar/{user_id}/class/{class_id}")

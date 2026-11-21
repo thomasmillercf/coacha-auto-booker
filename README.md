@@ -36,8 +36,10 @@ This Home Assistant integration watches the club calendar and books the sessions
 - `sensor.coacha_last_auto_booking` shows the latest booking made.
 - To cancel, pick the booking in `select.coacha_<name>_booking_to_cancel`, then press `button.coacha_<name>_cancel_booking`. Only upcoming bookings Coacha allows cancelling are listed, not waiting-list places.
 - `sensor.coacha_next_check` shows when the calendar will next be checked.
+- `sensor.coacha_outstanding_payments` shows the total owed across every profile, with a `pay_all_url` attribute that pays everything in one checkout, like the website's Pay All.
 - `coacha_session_available` fires the first time a wanted session opens for booking.
 - `coacha_booked` fires for every booking, waiting-list place or failed attempt, with `outcome` set to `booked`, `waiting_list` or `failed` and a `payment_url`.
+- `coacha_payment_due` fires once after a check that booked anything, with `booked` (who and what), `amount_formatted` and `pay_all_url`. Use it for a single "tap to pay all" alert.
 
 ## Development
 

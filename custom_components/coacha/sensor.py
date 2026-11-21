@@ -17,7 +17,11 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: CoachaConfigEntry, async_add_entities: AddConfigEntryEntitiesCallback
 ) -> None:
     coordinator = entry.runtime_data
-    entities: list[SensorEntity] = [LastActionSensor(coordinator), NextCheckSensor(coordinator)]
+    entities: list[SensorEntity] = [
+        LastActionSensor(coordinator),
+        NextCheckSensor(coordinator),
+        OutstandingPaymentsSensor(coordinator),
+    ]
     for member in coordinator.members:
         entities.append(NextBookingSensor(coordinator, member))
         entities.append(UnpaidBookingsSensor(coordinator, member))
@@ -102,3 +106,23 @@ class NextCheckSensor(CoachaEntity, SensorEntity):
     @property
     def native_value(self) -> datetime | None:
         return self.coordinator.data.next_check_at
+
+
+class OutstandingPaymentsSensor(CoachaEntity, SensorEntity):
+    _attr_device_class = SensorDeviceClass.MONETARY
+    _attr_native_unit_of_measurement = "GBP"
+    _attr_suggested_display_precision = 2
+
+    def __init__(self, coordinator: CoachaCoordinator) -> None:
+        super().__init__(coordinator, "outstanding_payments")
+
+    @property
+    def native_value(self) -> float:
+        return self.coordinator.data.outstanding.amount
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return {
+            "count": len(self.coordinator.data.outstanding.request_codes),
+            "pay_all_url": self.coordinator.data.pay_all_url,
+        }

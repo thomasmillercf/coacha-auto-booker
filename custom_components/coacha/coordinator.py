@@ -18,7 +18,9 @@ from .api import (
     CoachaAuthError,
     CoachaClient,
     Member,
+    OutstandingPayments,
     Session,
+    build_pay_all_url,
     build_payment_url,
 )
 from .booking_plan import PlannedDay, find_idle_until, normalise_session_type, plan_bookings, rank_session_type
@@ -32,6 +34,7 @@ from .const import (
     DEFAULT_WEEKDAYS,
     DOMAIN,
     EVENT_BOOKED,
+    EVENT_PAYMENT_DUE,
     EVENT_SESSION_AVAILABLE,
     IDLE_SCAN_INTERVAL,
     LOOKAHEAD,
@@ -52,6 +55,11 @@ class CoachaData:
     last_action: str | None = None
     last_action_at: datetime | None = None
     next_check_at: datetime | None = None
+    outstanding: OutstandingPayments = field(default_factory=OutstandingPayments)
+
+    @property
+    def pay_all_url(self) -> str:
+        return build_pay_all_url(self.outstanding.request_codes)
 
     @property
     def session_types(self) -> list[str]:
@@ -87,6 +95,7 @@ class CoachaCoordinator(DataUpdateCoordinator[CoachaData]):
         self._last_action: str | None = None
         self._last_action_at: datetime | None = None
         self.selected_for_cancel: dict[int, int] = {}
+        self._booked_this_check: list[str] = []
 
     @property
     def member_names(self) -> dict[int, str]:
@@ -208,9 +217,14 @@ class CoachaCoordinator(DataUpdateCoordinator[CoachaData]):
                     self._ever_booked | self._failed_attempts,
                 )
                 if planned:
+                    self._booked_this_check = []
                     await self._async_carry_out(planned)
                     bookings = await self._async_get_all_bookings(start, end)
                     await self._async_remember_bookings(bookings)
+            outstanding = await self._async_get_outstanding_payments()
+            if self._booked_this_check:
+                self._announce_payment_due(outstanding)
+                self._booked_this_check = []
         except CoachaAuthError as error:
             raise UpdateFailed(f"Coacha login failed: {error}") from error
         except CoachaApiError as error:
@@ -222,6 +236,30 @@ class CoachaCoordinator(DataUpdateCoordinator[CoachaData]):
             last_action=self._last_action,
             last_action_at=self._last_action_at,
             next_check_at=next_check_at,
+            outstanding=outstanding,
+        )
+
+    async def _async_get_outstanding_payments(self) -> OutstandingPayments:
+        amount = 0.0
+        codes: dict[str, None] = {}
+        for client in set(self.clients_by_user.values()):
+            outstanding = await client.async_get_outstanding_payments()
+            new_codes = [code for code in outstanding.request_codes if code not in codes]
+            if new_codes:
+                amount += outstanding.amount
+                codes.update(dict.fromkeys(new_codes))
+        return OutstandingPayments(amount=amount, request_codes=tuple(codes))
+
+    def _announce_payment_due(self, outstanding: OutstandingPayments) -> None:
+        self.hass.bus.async_fire(
+            EVENT_PAYMENT_DUE,
+            {
+                "booked": list(self._booked_this_check),
+                "amount": outstanding.amount,
+                "amount_formatted": f"£{outstanding.amount:.2f}",
+                "count": len(outstanding.request_codes),
+                "pay_all_url": build_pay_all_url(outstanding.request_codes),
+            },
         )
 
     def _schedule_next_check(self, sessions: list[Session], bookings: list[Booking]) -> datetime:
@@ -326,6 +364,8 @@ class CoachaCoordinator(DataUpdateCoordinator[CoachaData]):
             title = f"{name} is on the Coacha waiting list"
             message = f"{session.title} ({when}) was full."
         self._last_action = f"{title}: {session.title}"
+        if outcome == "booked":
+            self._booked_this_check.append(f"{name}: {normalise_session_type(session.title)} {when}")
         self._last_action_at = dt_util.utcnow()
         self.hass.bus.async_fire(EVENT_BOOKED, {**self._describe(user_id, session, payment_url), "outcome": outcome})
         await self._async_notify(title, message, payment_url)

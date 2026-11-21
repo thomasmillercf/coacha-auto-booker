@@ -7,7 +7,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ServiceValidationError
 from pytest_homeassistant_custom_component.common import MockConfigEntry, async_capture_events, async_mock_service
 
-from custom_components.coacha.api import Booking, ClassAvailability, Member, Session
+from custom_components.coacha.api import Booking, ClassAvailability, Member, OutstandingPayments, Session
 from custom_components.coacha.const import DOMAIN
 
 ALEX = Member(user_id=1000001, name="Alex Skier")
@@ -60,6 +60,9 @@ def build_client(bookings: list[list[Booking]], full_class_ids: frozenset[int] =
     client.async_book = AsyncMock(return_value="pay-me")
     client.async_join_waiting_list = AsyncMock()
     client.async_cancel = AsyncMock()
+    client.async_get_outstanding_payments = AsyncMock(
+        return_value=OutstandingPayments(amount=30.0, request_codes=("R4FTD1494774", "YEXBY1494775"))
+    )
     return client
 
 
@@ -218,3 +221,35 @@ class TestCoachaCoordinator:
             )
 
         client.async_cancel.assert_not_awaited()
+
+    async def test_shows_the_outstanding_total_with_a_pay_all_link(self, hass, phone_notifications, freezer):
+        freezer.move_to("2026-09-28 09:00:00+01:00")
+        await set_up(hass, build_client([[build_booking(FRIDAY_ERSA.class_id)]]))
+
+        outstanding = hass.states.get("sensor.coacha_outstanding_payments")
+
+        assert float(outstanding.state) == 30.0
+        assert outstanding.attributes["count"] == 2
+        assert (
+            outstanding.attributes["pay_all_url"] == "https://my.coacha.app/member_payment?rc=R4FTD1494774,YEXBY1494775"
+        )
+
+    async def test_announces_one_pay_all_link_after_booking(self, hass, phone_notifications):
+        client = build_client([[], [build_booking(FRIDAY_ERSA.class_id, paid=False)]])
+        payment_due = async_capture_events(hass, "coacha_payment_due")
+
+        await set_up(hass, client)
+
+        assert len(payment_due) == 1
+        assert payment_due[0].data["amount_formatted"] == "£30.00"
+        assert payment_due[0].data["booked"] == [
+            "Alex Skier: BOOK THIS FIRST if on WGCSRC ERSA members list! Fri 2 Oct 19:00"
+        ]
+        assert payment_due[0].data["pay_all_url"].endswith("rc=R4FTD1494774,YEXBY1494775")
+
+    async def test_does_not_announce_payment_when_nothing_was_booked(self, hass, phone_notifications):
+        payment_due = async_capture_events(hass, "coacha_payment_due")
+
+        await set_up(hass, build_client([[build_booking(FRIDAY_ERSA.class_id)]]))
+
+        assert payment_due == []

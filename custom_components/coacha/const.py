@@ -26,3 +26,4 @@ IDLE_SCAN_INTERVAL = timedelta(minutes=10)
 
 EVENT_BOOKED = f"{DOMAIN}_booked"
 EVENT_SESSION_AVAILABLE = f"{DOMAIN}_session_available"
+EVENT_PAYMENT_DUE = f"{DOMAIN}_payment_due"

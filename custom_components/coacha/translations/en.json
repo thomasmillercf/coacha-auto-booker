@@ -63,6 +63,9 @@
       },
       "next_check": {
         "name": "Next check"
+      },
+      "outstanding_payments": {
+        "name": "Outstanding payments"
       }
     },
     "switch": {
